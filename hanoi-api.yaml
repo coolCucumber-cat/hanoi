@@ -1,0 +1,116 @@
+openapi: 3.0.3
+info:
+  description: An algorithm puzzle API
+  title: Tower of Hanoi API
+  version: 1.0.0
+externalDocs:
+  description: Wikipedia
+  url: https://en.wikipedia.org/wiki/Tower_of_Hanoi
+servers:
+  - description: Generated server url
+    url: http://localhost:8080
+paths:
+  /api/hanoi:
+    delete:
+      description: Reset the Game to an initial state.
+      operationId: reset
+      parameters:
+        - description: The amount of disks to use for the next game.
+          in: query
+          name: size
+          required: false
+          schema:
+            type: integer
+            default: 3
+            example: 10
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HanoiBoard"
+          description: OK
+      tags:
+        - hanoi-controller
+    get:
+      description: Get the current state of the game.
+      operationId: hanoi
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HanoiBoard"
+          description: OK
+      tags:
+        - hanoi-controller
+    post:
+      description: Move a disk to another tower.
+      operationId: move
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Move"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HanoiBoard"
+          description: The new board in case of a valid move.
+        "400":
+          description: "Illegal move, for example when moving a large disk on top of a small one."
+      tags:
+        - hanoi-controller
+  /api/hanoi/hint:
+    get:
+      description: Get a hint on which disk to move next.
+      operationId: hint
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Move"
+          description: The best possible move to do next.
+      tags:
+        - hanoi-controller
+components:
+  schemas:
+    HanoiBoard:
+      type: object
+      description: The three towers of Hanoi represented as list of integers.
+      properties:
+        pegA:
+          type: array
+          description: The first pole containing a list of disks ordered from largest first to smallest last. The smallest disk has id (size) 0.
+          example: "[4,2,1]"
+          items:
+            type: integer
+        pegB:
+          type: array
+          example: "[]"
+          items:
+            type: integer
+        pegC:
+          type: array
+          description: The target peg, where disks should be moved to.
+          example: "[5,0]"
+          items:
+            type: integer
+    Move:
+      type: object
+      description: "A (valid) move of a single disk starting at peg 'from' and ending at peg 'to'."
+      properties:
+        from:
+          $ref: "#/components/schemas/Peg"
+        to:
+          $ref: "#/components/schemas/Peg"
+    Peg:
+      type: string
+      enum:
+        - A
+        - B
+        - C
