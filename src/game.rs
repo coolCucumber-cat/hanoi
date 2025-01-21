@@ -1,5 +1,7 @@
 use fmt2::write_to::{FmtAdvanced, WriteTo};
+use serde::{Deserialize, Serialize};
 
+#[derive(Debug)]
 pub struct Error;
 
 pub type Result<T = ()> = core::result::Result<T, Error>;
@@ -7,7 +9,7 @@ pub type Result<T = ()> = core::result::Result<T, Error>;
 type TowerUint = usize;
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 enum ABC {
     A,
     B,
@@ -25,73 +27,35 @@ impl FmtAdvanced for ABC {
     }
 }
 
-fmt2::enum_alias! { enum AB: ABC = { A | B }; }
-impl AB {
-    pub const fn rev(self) -> Self {
-        match self {
-            Self::A => Self::B,
-            Self::B => Self::A,
-        }
-    }
-}
-fmt2::enum_alias! { enum AC: ABC = { A | C }; }
-impl AC {
-    pub const fn rev(self) -> Self {
-        match self {
-            Self::A => Self::C,
-            Self::C => Self::A,
-        }
-    }
-}
-fmt2::enum_alias! { enum BC: ABC = { B | C }; }
-impl BC {
-    pub const fn rev(self) -> Self {
-        match self {
-            Self::B => Self::C,
-            Self::C => Self::B,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct StartEnd {
+pub struct Move {
     start: ABC,
     end: ABC,
 }
 
+impl From<Route> for Move {
+    fn from(route: Route) -> Self {
+        Self {
+            start: route.start,
+            end: route.end,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Route {
-    A(BC),
-    B(AC),
-    C(AB),
+struct Route {
+    start: ABC,
+    middle: ABC,
+    end: ABC,
 }
 
 impl WriteTo for Route {
     fmt2::fmt! { [s] =>
-        r#"{"from":"# {s.start_middle_end().0} r#","to":"# {s.start_middle_end().2} r#"}"#
+        r#"{"from":"# {s.start} r#","to":"# {s.end} r#"}"#
     }
 }
 
-impl Route {
-    fn start_middle_end(self) -> (ABC, ABC, ABC) {
-        match self {
-            Self::A(bc) => (ABC::A, ABC::from(bc.rev()), ABC::from(bc)),
-            Self::B(ac) => (ABC::B, ABC::from(ac.rev()), ABC::from(ac)),
-            Self::C(ab) => (ABC::C, ABC::from(ab.rev()), ABC::from(ab)),
-        }
-    }
-    fn start(self) -> ABC {
-        self.start_middle_end().0
-    }
-    fn middle(self) -> ABC {
-        self.start_middle_end().1
-    }
-    fn end(self) -> ABC {
-        self.start_middle_end().2
-    }
-}
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Game {
     a: Vec<TowerUint>,
     b: Vec<TowerUint>,
@@ -119,44 +83,76 @@ impl Game {
         }
     }
 
-    fn hint_internal(&self, route: Route, unit: TowerUint, index: usize) -> StartEnd {
-        let (start, middle, end) = route.start_middle_end();
-        if let Some(end_blocker) = index_of_lt(self.get_ref(end), unit) {
-            return self.hint_internal(route, unit, index);
+    fn hint_internal(&self, route: Route, unit: TowerUint, index: usize) -> Move {
+        let index_new = index + 1;
+        let start_blocker = self.get_ref(route.start).get(index_new);
+        if let Some(&unit_new) = start_blocker {
+            return self.hint_internal(
+                Route {
+                    start: route.start,
+                    middle: route.end,
+                    end: route.middle,
+                },
+                unit_new,
+                index_new,
+            );
         }
-        if let Some(start_blocker) = self.get_ref(start).get(index + 1) {
-            return StartEnd { start, end: middle };
+        let end_blocker = self
+            .get_ref(route.end)
+            .iter()
+            .enumerate()
+            .find(|(_, &unit_)| unit_ < unit);
+        if let Some((index_new, &unit_new)) = end_blocker {
+            return self.hint_internal(
+                Route {
+                    start: route.end,
+                    middle: route.start,
+                    end: route.middle,
+                },
+                unit_new,
+                index_new,
+            );
         }
-        StartEnd { start, end }
+        Move::from(route)
     }
 
-    pub fn hint(&self) -> StartEnd {
+    pub fn hint(&self) -> Move {
         let range = (0..self.count).rev();
         for unit in range {
             if self.c.contains(&unit) {
                 continue;
             }
             let (route, index) = if let Some(index) = index_of(&self.a, unit) {
-                (Route::A(BC::C), index)
+                (
+                    Route {
+                        start: ABC::A,
+                        middle: ABC::B,
+                        end: ABC::C,
+                    },
+                    index,
+                )
             } else {
                 (
-                    Route::B(AC::C),
+                    Route {
+                        start: ABC::B,
+                        middle: ABC::A,
+                        end: ABC::C,
+                    },
                     index_of(&self.b, unit).expect("unreachable"),
                 )
             };
             return self.hint_internal(route, unit, index);
         }
-        StartEnd {
+        Move {
             start: ABC::C,
             end: ABC::C,
         }
     }
 
-    fn is_valid_route(&self, route: Route) -> bool {
-        let (start, _, end) = route.start_middle_end();
+    fn is_valid_move(&self, player_move: Move) -> bool {
         self.is_valid_placement(
-            self.get_ref(start).last().copied(),
-            self.get_ref(end).last().copied(),
+            self.get_ref(player_move.start).last().copied(),
+            self.get_ref(player_move.end).last().copied(),
         )
     }
 
@@ -170,40 +166,39 @@ impl Game {
         end >= start
     }
 
-    pub fn play(&mut self, route: Route) -> Result<&mut Self> {
-        let (start, _, end) = route.start_middle_end();
-        if self.is_valid_route(route) {
-            let start = self.get_mut(start).pop().expect("unreachable");
-            self.get_mut(end).push(start);
+    pub fn play(&mut self, player_move: Move) -> Result<&mut Self> {
+        if self.is_valid_move(player_move) {
+            let start = self.get_mut(player_move.start).pop().expect("unreachable");
+            self.get_mut(player_move.end).push(start);
             Ok(self)
         } else {
             Err(Error)
         }
     }
-
-    fn find_tower_abc(&self, count: TowerUint) -> (ABC, usize) {
-        if let Some(u) = index_of(&self.a, count) {
-            return (ABC::A, u);
-        }
-        if let Some(u) = index_of(&self.b, count) {
-            return (ABC::B, u);
-        }
-        if let Some(u) = index_of(&self.b, count) {
-            return (ABC::B, u);
-        }
-        panic!("unreachable");
-    }
-
-    fn find_tower_mut(&self, count: TowerUint) -> ABC {
-        if self.a.contains(&count) {
-            return ABC::A;
-        }
-        if self.b.contains(&count) {
-            return ABC::B;
-        }
-
-        ABC::C
-    }
+    //
+    //     fn find_tower_abc(&self, count: TowerUint) -> (ABC, usize) {
+    //         if let Some(u) = index_of(&self.a, count) {
+    //             return (ABC::A, u);
+    //         }
+    //         if let Some(u) = index_of(&self.b, count) {
+    //             return (ABC::B, u);
+    //         }
+    //         if let Some(u) = index_of(&self.b, count) {
+    //             return (ABC::B, u);
+    //         }
+    //         panic!("unreachable");
+    //     }
+    //
+    //     fn find_tower_mut(&self, count: TowerUint) -> ABC {
+    //         if self.a.contains(&count) {
+    //             return ABC::A;
+    //         }
+    //         if self.b.contains(&count) {
+    //             return ABC::B;
+    //         }
+    //
+    //         ABC::C
+    //     }
 
     fn get_ref(&self, tower: ABC) -> &[TowerUint] {
         match tower {
@@ -228,15 +223,5 @@ where
     s.iter()
         .enumerate()
         .find(|(_, &v)| v == value)
-        .map(|(u, _)| u)
-}
-
-fn index_of_lt<T>(s: &[T], value: T) -> Option<usize>
-where
-    T: PartialEq + Copy,
-{
-    s.iter()
-        .enumerate()
-        .find(|(_, &v)| v < value)
         .map(|(u, _)| u)
 }
