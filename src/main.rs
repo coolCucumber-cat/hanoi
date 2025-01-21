@@ -1,13 +1,15 @@
 mod game;
+use std::sync::{Arc, Mutex};
+
 use axum::{routing::get, Router};
 use fmt2::write_to::ToString;
 use game::Game;
 
 #[derive(Clone)]
 struct AppState {
-    game: game::Game,
+    game: Arc<Mutex<game::Game>>,
 }
-//
+
 // #[tokio::main]
 // async fn main() {
 //     let app = Router::new()
@@ -26,9 +28,8 @@ struct AppState {
 fn main() {
     let mut g = Game::new(4);
 
-    for _ in 0..20 {
-        let hint = g.hint();
-        let play = g.play(hint);
-        println!("{hint:?} => {play:?}");
+    while let Some(hint) = g.next() {
+        g.play(hint).expect("what the sigma");
+        println!("{hint:?} => {g:?}");
     }
 }
