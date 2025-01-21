@@ -1,4 +1,3 @@
-use fmt2::write_to::{FmtAdvanced, WriteTo};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
@@ -156,38 +155,20 @@ impl Game {
         }
     }
 
-    fn hint_internal(&self, route: Route, unit: TowerUint, index: usize) -> Route {
-        let index_new = index + 1;
-        let start_blocker = self.get_ref(route.start()).get(index_new);
-        if let Some(&unit_new) = start_blocker {
-            return self.hint_internal(route.from_start_to_middle(), unit_new, index_new);
-        }
-        let end_blocker = self
-            .get_ref(route.end())
-            .iter()
-            .enumerate()
-            .find(|(_, &unit_)| unit_ < unit);
-        if let Some((index_new, &unit_new)) = end_blocker {
-            return self.hint_internal(route.from_end_to_middle(), unit_new, index_new);
-        }
-        route
-    }
-
     pub fn hint(&self) -> Option<Route> {
         let range = (0..self.count).rev();
+        let mut end = ABC::C;
         for unit in range {
-            if self.c.contains(&unit) {
+            let (start, start_is_blocked) = self.find_unit(unit);
+            let Ok(route) = Route::try_from(Move { start, end }) else {
+                continue;
+            };
+            let end_is_blocked = self.get_ref(route.end()).iter().any(|&unit_| unit_ < unit);
+            if start_is_blocked || end_is_blocked {
+                end = route.middle();
                 continue;
             }
-            let (route, index) = if let Some(index) = index_of(&self.a, unit) {
-                (Route::A(BC::C), index)
-            } else {
-                (
-                    Route::B(AC::C),
-                    index_of(&self.b, unit).expect("unreachable"),
-                )
-            };
-            return Some(self.hint_internal(route, unit, index));
+            return Some(route);
         }
         None
     }
@@ -232,30 +213,19 @@ impl Game {
         };
         end >= start
     }
-    //
-    //     fn find_tower_abc(&self, count: TowerUint) -> (ABC, usize) {
-    //         if let Some(u) = index_of(&self.a, count) {
-    //             return (ABC::A, u);
-    //         }
-    //         if let Some(u) = index_of(&self.b, count) {
-    //             return (ABC::B, u);
-    //         }
-    //         if let Some(u) = index_of(&self.b, count) {
-    //             return (ABC::B, u);
-    //         }
-    //         panic!("unreachable");
-    //     }
-    //
-    //     fn find_tower_mut(&self, count: TowerUint) -> ABC {
-    //         if self.a.contains(&count) {
-    //             return ABC::A;
-    //         }
-    //         if self.b.contains(&count) {
-    //             return ABC::B;
-    //         }
-    //
-    //         ABC::C
-    //     }
+
+    fn find_unit(&self, count: TowerUint) -> (ABC, bool) {
+        if let Some(u) = index_of(&self.a, count) {
+            return (ABC::A, self.a.get(u + 1).is_some());
+        }
+        if let Some(u) = index_of(&self.b, count) {
+            return (ABC::B, self.b.get(u + 1).is_some());
+        }
+        if let Some(u) = index_of(&self.c, count) {
+            return (ABC::C, self.c.get(u + 1).is_some());
+        }
+        panic!("unreachable");
+    }
 
     fn get_ref(&self, tower: ABC) -> &[TowerUint] {
         match tower {
@@ -270,13 +240,6 @@ impl Game {
             ABC::B => &mut self.b,
             ABC::C => &mut self.c,
         }
-    }
-}
-
-impl Iterator for Game {
-    type Item = Route;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.hint()
     }
 }
 
