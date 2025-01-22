@@ -81,6 +81,14 @@ async fn main() {
         .route("/api/hanoi/hint", get(routes::hint))
         .with_state(AppState::new());
 
+    #[cfg(debug_assertions)]
+    {
+        let mut g = Game::new(4);
+        while let Some(()) = g.play() {
+            println!("{g:?}");
+        }
+    }
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
         .await
         .unwrap();
@@ -88,10 +96,4 @@ async fn main() {
 }
 
 // fn main() {
-//     let mut g = Game::new(4);
-//
-//     while let Some(hint) = g.next() {
-//         g.play(hint).expect("what the sigma");
-//         println!("{hint:?} => {g:?}");
-//     }
 // }

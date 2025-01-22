@@ -2,7 +2,7 @@ use axum::{http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 
 /// Hanoi board error (invalid move)
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct Error;
 
 impl IntoResponse for Error {
@@ -16,8 +16,11 @@ pub type Result<T = ()> = core::result::Result<T, Error>;
 type TowerUint = usize;
 
 /// tower
+///
+/// Only derive debug in dev mode
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(debug_assertions, derive(Debug))]
 enum ABC {
     A,
     B,
@@ -54,7 +57,7 @@ impl BC {
 
 /// A guaranteed valid route.
 /// The variant is the start tower and its value is the end
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Route {
     A(BC),
     B(AC),
@@ -109,7 +112,7 @@ impl Route {
 /// A move
 ///
 /// The start and end can be the same and should only be used to be converted to a route
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Move {
     #[serde(rename = "from")]
     start: ABC,
@@ -141,7 +144,10 @@ impl TryFrom<Move> for Route {
 /// A hanoi board
 ///
 /// We also store the size, but skip it in serialisation
-#[derive(Debug, Serialize)]
+///
+/// Only derive debug in dev mode
+#[derive(Serialize)]
+#[cfg_attr(debug_assertions, derive(Debug))]
 pub struct Game {
     #[serde(rename = "pegA")]
     a: Vec<TowerUint>,
