@@ -198,23 +198,22 @@ impl Game {
         })
     }
 
+    fn hint_recursive(&self, end: ABC, mut range: impl Iterator<Item = usize>) -> Option<Route> {
+        let unit = range.next()?;
+        let (start, start_is_blocked) = self.find_unit(unit);
+        let Ok(route) = Route::try_from(Move { start, end }) else {
+            return self.hint_recursive(end, range);
+        };
+        let end_is_blocked = self.get_ref(route.end()).iter().any(|&unit_| unit_ < unit);
+        if start_is_blocked || end_is_blocked {
+            return self.hint_recursive(route.middle(), range);
+        }
+        Some(route)
+    }
+
     /// Get a hint as a route
     fn hint(&self) -> Option<Route> {
-        let range = (0..self.count).rev();
-        let mut end = ABC::C;
-        for unit in range {
-            let (start, start_is_blocked) = self.find_unit(unit);
-            let Ok(route) = Route::try_from(Move { start, end }) else {
-                continue;
-            };
-            let end_is_blocked = self.get_ref(route.end()).iter().any(|&unit_| unit_ < unit);
-            if start_is_blocked || end_is_blocked {
-                end = route.middle();
-                continue;
-            }
-            return Some(route);
-        }
-        None
+        self.hint_recursive(ABC::C, (0..self.count).rev())
     }
 
     /// Play with a route
