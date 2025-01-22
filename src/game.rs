@@ -1,12 +1,21 @@
+use axum::{http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+/// Hanoi board error (invalid move)
+#[derive(Debug, Serialize)]
 pub struct Error;
+
+impl IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        StatusCode::BAD_REQUEST.into_response()
+    }
+}
 
 pub type Result<T = ()> = core::result::Result<T, Error>;
 
 type TowerUint = usize;
 
+/// tower
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 enum ABC {
@@ -14,17 +23,6 @@ enum ABC {
     B,
     C,
 }
-
-// impl FmtAdvanced for ABC {
-//     type Target = str;
-//     fn fmt_advanced(&self) -> &Self::Target {
-//         match self {
-//             ABC::A => "A",
-//             ABC::B => "B",
-//             ABC::C => "C",
-//         }
-//     }
-// }
 
 fmt2::enum_alias! { enum AB: ABC = { A | B }; }
 impl AB {
@@ -54,13 +52,17 @@ impl BC {
     }
 }
 
+/// A guaranteed valid route.
+/// The variant is the start tower and its value is the end
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Route {
+enum Route {
     A(BC),
     B(AC),
     C(AB),
 }
+
 impl Route {
+    /// Get the start, middle and end of the route
     #[inline]
     const fn start_middle_end(self) -> (ABC, ABC, ABC) {
         match self {
@@ -81,34 +83,37 @@ impl Route {
     const fn end(self) -> ABC {
         self.start_middle_end().2
     }
-    #[allow(clippy::wrong_self_convention)]
-    #[inline]
-    const fn from_start_to_middle(self) -> Self {
-        match self {
-            Self::A(bc) => Self::A(bc.rev()),
-            Self::B(ac) => Self::B(ac.rev()),
-            Self::C(ab) => Self::C(ab.rev()),
-        }
-    }
-    #[allow(clippy::wrong_self_convention)]
-    #[inline]
-    const fn from_end_to_middle(self) -> Self {
-        match self {
-            Self::A(BC::B) => Self::B(AC::C),
-            Self::A(BC::C) => Self::C(AB::B),
-            Self::B(AC::A) => Self::A(BC::C),
-            Self::B(AC::C) => Self::C(AB::A),
-            Self::C(AB::A) => Self::A(BC::B),
-            Self::C(AB::B) => Self::B(AC::A),
-        }
-    }
+    // #[allow(clippy::wrong_self_convention)]
+    // #[inline]
+    // const fn from_start_to_middle(self) -> Self {
+    //     match self {
+    //         Self::A(bc) => Self::A(bc.rev()),
+    //         Self::B(ac) => Self::B(ac.rev()),
+    //         Self::C(ab) => Self::C(ab.rev()),
+    //     }
+    // }
+    // #[allow(clippy::wrong_self_convention)]
+    // #[inline]
+    // const fn from_end_to_middle(self) -> Self {
+    //     match self {
+    //         Self::A(BC::B) => Self::B(AC::C),
+    //         Self::A(BC::C) => Self::C(AB::B),
+    //         Self::B(AC::A) => Self::A(BC::C),
+    //         Self::B(AC::C) => Self::C(AB::A),
+    //         Self::C(AB::A) => Self::A(BC::B),
+    //         Self::C(AB::B) => Self::B(AC::A),
+    //     }
+    // }
 }
 
+/// A move
+///
+/// The start and end can be the same and should only be used to be converted to a route
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Move {
-    #[serde(alias = "from")]
+    #[serde(rename = "from")]
     start: ABC,
-    #[serde(alias = "to")]
+    #[serde(rename = "to")]
     end: ABC,
 }
 
@@ -133,19 +138,27 @@ impl TryFrom<Move> for Route {
     }
 }
 
+/// A hanoi board
+///
+/// We also store the size, but skip it in serialisation
 #[derive(Debug, Serialize)]
 pub struct Game {
-    #[serde(alias = "pegA")]
+    #[serde(rename = "pegA")]
     a: Vec<TowerUint>,
-    #[serde(alias = "pegB")]
+    #[serde(rename = "pegB")]
     b: Vec<TowerUint>,
-    #[serde(alias = "pegC")]
+    #[serde(rename = "pegC")]
     c: Vec<TowerUint>,
     #[serde(skip)]
     count: TowerUint,
 }
 
 impl Game {
+    /// Create a new game with a given number of units
+    ///
+    /// Put all the units in reverse (starting with the largest) in the `a` tower
+    ///
+    /// Create the other two towers with the needed capacity to reduce heap allocs
     pub fn new(count: TowerUint) -> Self {
         Self {
             a: (0..count).rev().collect(),
@@ -155,7 +168,38 @@ impl Game {
         }
     }
 
-    pub fn hint(&self) -> Option<Route> {
+    /// Play with a move
+    ///
+    /// Does nothing if it's not a valid route (meaning the start and end are the same)
+    pub fn play_with_move(&mut self, player_move: Move) -> Result {
+        if let Ok(route) = player_move.try_into() {
+            self.play_with_route(route)?;
+        }
+        Ok(())
+    }
+
+    /// Get a hint and then play it
+    #[allow(unused)]
+    pub fn play(&mut self) -> Option<()> {
+        let route = self.hint()?;
+        debug_assert!(self.is_valid_route(route));
+        let start = self.get_mut(route.start()).pop().expect("unreachable");
+        self.get_mut(route.end()).push(start);
+        Some(())
+    }
+
+    /// Get a hint
+    ///
+    /// If there is no route to do, return a pointless move
+    pub fn hint_move(&self) -> Move {
+        self.hint().map(From::from).unwrap_or(Move {
+            start: ABC::C,
+            end: ABC::C,
+        })
+    }
+
+    /// Get a hint as a route
+    fn hint(&self) -> Option<Route> {
         let range = (0..self.count).rev();
         let mut end = ABC::C;
         for unit in range {
@@ -173,14 +217,8 @@ impl Game {
         None
     }
 
-    pub fn hint_with_move(&self) -> Move {
-        self.hint().map(From::from).unwrap_or(Move {
-            start: ABC::C,
-            end: ABC::C,
-        })
-    }
-
-    pub fn play(&mut self, route: Route) -> Result {
+    /// Play with a route
+    fn play_with_route(&mut self, route: Route) -> Result {
         if self.is_valid_route(route) {
             let start = self.get_mut(route.start()).pop().expect("unreachable");
             self.get_mut(route.end()).push(start);
@@ -190,13 +228,7 @@ impl Game {
         }
     }
 
-    pub fn play_with_move(&mut self, player_move: Move) -> Result<&mut Self> {
-        if let Ok(route) = player_move.try_into() {
-            self.play(route)?;
-        }
-        Ok(self)
-    }
-
+    /// Check if a route is valid
     fn is_valid_route(&self, route: Route) -> bool {
         self.is_valid_placement(
             self.get_ref(route.start()).last().copied(),
@@ -214,6 +246,7 @@ impl Game {
         end >= start
     }
 
+    /// Find which tower the given unit is in and if there is something above it blocking it
     fn find_unit(&self, count: TowerUint) -> (ABC, bool) {
         if let Some(u) = index_of(&self.a, count) {
             return (ABC::A, self.a.get(u + 1).is_some());
