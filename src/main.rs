@@ -32,6 +32,16 @@ impl AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
+    #[cfg(debug_assertions)]
+    {
+        let mut g = Game::new(4);
+        while let Some(()) = g.play() {
+            println!("{g:?}");
+        }
+    }
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
+
     let app = Router::new()
         .route(
             "/api/hanoi",
@@ -43,16 +53,5 @@ async fn main() -> Result<(), std::io::Error> {
         .route("/api/hanoi/hint", get(routes::hint::get))
         .with_state(AppState::new());
 
-    #[cfg(debug_assertions)]
-    {
-        let mut g = Game::new(4);
-        while let Some(()) = g.play() {
-            println!("{g:?}");
-        }
-    }
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
-        .await
-        .expect("to be valid address");
     axum::serve(listener, app).await
 }
