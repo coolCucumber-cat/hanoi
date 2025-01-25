@@ -1,5 +1,6 @@
 use axum::{extract::State, response::IntoResponse, Json};
-
+use axum::extract::Query;
+use serde::Deserialize;
 use crate::{
     game::{Error, Game, Move},
     AppState,
@@ -19,12 +20,22 @@ pub async fn post(
     Ok(Json(&*game).into_response())
 }
 
+#[derive(Deserialize)]
+pub struct DeleteQueryParam {
+    #[serde(default = "size_default")]
+    size: usize,
+}
+
+fn size_default() -> usize {
+    3
+}
+
 pub async fn delete(
     State(AppState { game }): State<AppState>,
-    Json(count): Json<usize>,
+    Query(query): Query<DeleteQueryParam>,
 ) -> impl IntoResponse {
     let mut game = game.lock().unwrap();
-    *game = Game::new(count);
+    *game = Game::new(query.size);
     Json(&*game).into_response()
 }
 
